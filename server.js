@@ -77,24 +77,29 @@ app.get('/', (req, res) => {
             }
             recognition = new SpeechRecognition();
             recognition.continuous = true;
-            recognition.interimResults = false;
+            recognition.interimResults = true;
             recognition.lang = 'en-US';
 
             recognition.onresult = (event) => {
-              const transcript = event.results[event.results.length - 1][0].transcript.trim();
-              status.innerText = 'Heard: "' + transcript + '"';
-              if (transcript.toLowerCase().includes('atlas')) {
+              const lastResult = Array.from(event.results).at(-1);
+              const transcript = Array.from(lastResult).at(0).transcript.trim();
+              status.innerText = 'Listening: "' + transcript + '"';
+              
+              if (lastResult.isFinal && transcript.toLowerCase().includes('atlas')) {
                 send(transcript, true);
               }
             };
 
             recognition.onerror = (event) => {
-              status.innerText = 'Mic error: ' + event.error + '. Check browser mic permissions.';
+              if (event.error === 'no-speech') return;
+              status.innerText = 'Mic error: ' + event.error;
             };
 
             recognition.onend = () => {
               if (voiceActive && !window.speechSynthesis.speaking) {
-                try { recognition.start(); } catch(e) {}
+                setTimeout(() => {
+                  try { recognition.start(); } catch(e) {}
+                }, 200);
               }
             };
 
@@ -198,7 +203,7 @@ app.post('/chat', async (req, res) => {
       model: 'openai/gpt-oss-120b'
     });
 
-    const reply = completion.choices[0].message.content;
+    const reply = completion.choices.at(0).message.content;
     chatHistory.push({ role: 'assistant', content: reply });
     res.json({ reply });
   } catch (err) {
