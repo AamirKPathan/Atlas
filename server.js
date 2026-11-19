@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { Groq } = require('@groq/groq-sdk');
+const Groq = require('groq-sdk');
 const { google } = require('googleapis');
 require('dotenv').config();
 
