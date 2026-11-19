@@ -10,10 +10,12 @@ app.use(express.json());
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+const redirectUri = 'https://' + 'atlas-bot-muju.onrender.com' + '/api/auth/callback/google';
+
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  'https://onrender.com'
+  redirectUri
 );
 
 app.get('/', (req, res) => {
@@ -21,13 +23,14 @@ app.get('/', (req, res) => {
 });
 
 app.get('/login', (req, res) => {
+  const base = 'https://' + '://googleapis.com';
   const scopes = [
-    'https://googleapis.com',
-    'https://googleapis.com',
-    'https://googleapis.com',
-    'https://googleapis.com',
-    'https://googleapis.com',
-    'https://googleapis.com'
+    base + 'gmail.modify',
+    base + 'calendar',
+    base + 'tasks',
+    base + 'documents',
+    base + 'drive',
+    base + 'spreadsheets'
   ];
 
   const url = oauth2Client.generateAuthUrl({
