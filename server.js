@@ -81,11 +81,15 @@ app.get('/', (req, res) => {
             recognition.lang = 'en-US';
 
             recognition.onresult = (event) => {
-              const transcript = event.results[event.results.length - 1].transcript.trim();
+              const transcript = event.results[event.results.length - 1][0].transcript.trim();
               status.innerText = 'Heard: "' + transcript + '"';
               if (transcript.toLowerCase().includes('atlas')) {
                 send(transcript, true);
               }
+            };
+
+            recognition.onerror = (event) => {
+              status.innerText = 'Mic error: ' + event.error + '. Check browser mic permissions.';
             };
 
             recognition.onend = () => {
@@ -98,7 +102,7 @@ app.get('/', (req, res) => {
             voiceActive = true;
             btn.innerText = '🟢 Listening ("Atlas...")';
             btn.className = 'btn voice-on';
-            status.innerText = 'Hands-free active! Just say "Atlas" followed by your command.';
+            status.innerText = 'Hands-free active! Say "Atlas" followed by your command.';
           } else {
             voiceActive = false;
             if (recognition) recognition.stop();
