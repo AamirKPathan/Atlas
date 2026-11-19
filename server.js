@@ -13,7 +13,7 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  `${process.env.RENDER_EXTERNAL_URL}/api/auth/callback/google`
+  'https://onrender.com'
 );
 
 app.get('/', (req, res) => {
@@ -21,26 +21,32 @@ app.get('/', (req, res) => {
 });
 
 app.get('/login', (req, res) => {
+  const scopes = [
+    'https://googleapis.com',
+    'https://googleapis.com',
+    'https://googleapis.com',
+    'https://googleapis.com',
+    'https://googleapis.com',
+    'https://googleapis.com'
+  ];
+
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
-    scope: [
-      'https://googleapis.com',
-      'https://googleapis.com',
-      'https://googleapis.com',
-      'https://googleapis.com',
-      'https://googleapis.com',
-      'https://googleapis.com'
-    ]
+    scope: scopes
   });
   res.redirect(url);
 });
 
 app.get('/api/auth/callback/google', async (req, res) => {
-  const { code } = req.query;
-  const { tokens } = await oauth2Client.getToken(code);
-  oauth2Client.setCredentials(tokens);
-  res.send('<h1>Success! Atlas is now connected to your Gmail, Calendar, Tasks, Docs, Drive, and Sheets!</h1>');
+  try {
+    const { code } = req.query;
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+    res.send('<h1>Success! Atlas is now connected to your Gmail, Calendar, Tasks, Docs, Drive, and Sheets!</h1>');
+  } catch (err) {
+    res.status(500).send('Auth error: ' + err.message);
+  }
 });
 
 const PORT = process.env.PORT || 3000;
