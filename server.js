@@ -62,14 +62,15 @@ async function getDrive() {
   return (r.data.files || []).map(f => f.name + '(' + f.id + ')').join('\n') || "No files.";
 }
 
+const mdParser = Buffer.from('ZnVuY3Rpb24gcGFyc2VNRChtKXt2YXIgaD1tLnJlcGxhY2UoLyYvZywiJmFtcDsiKS5yZXBsYWNlKC88L2csIiZsdDsiKS5yZXBsYWNlKC8+L2csIiZndDsiKTtoPWgucmVwbGFjZSgvXihcI1x7M30pXHMqKC4rKSQvbWcsIjxoMz4kMjwvaDM+IikucmVwbGFjZSgvXihcI1x7Mn0pXHMqKC4rKSQvbWcsIjxoMj4kMjwvaDI+IikucmVwbGFjZSgvXihcI1x7MX0pXHMqKC4rKSQvbWcsIjxoMT4kMjwvaDE+Iik7aD1oLnJlcGxhY2UoL14tLXstLH1ccyokL21nLCI8aHI+IikucmVwbGFjZSgvXlwqXCooLio/KVwqXCovZywiPHN0cm9uZz4kMTwvc3Ryb25nPiIpLnJlcGxhY2UoL1wqKC4qPylcKi9nLCI8ZW0+JDE8L2VtPiIpO2g9aC5yZXBsYWNlKC9eKFstKl0pfFxkK1wuKVxzKyguKykkL21nLCI8bGk+JDI8L2xpPiIpO3JldHVybiBoLnJlcGxhY2UoL1xuL2csIjxicj4iKTt9', 'base64').toString('utf8');
+
 app.get('/', (req, res) => {
   const dot = savedTokens ? '#10b981' : '#52525b';
   const auth = savedTokens ? 'Workspace Linked' : 'Link Google';
-  const sOpen = '<' + 'script';
+  const sOpen = '<' + 'script>';
   const sClose = '<' + '/script>';
   res.send([
-    '<!DOCTYPE html><html><head><title>Atlas</title><meta name="viewport" content="width=device-width,initial-scale=1">',
-    sOpen + ' src="https://jsdelivr.net">' + sClose + '<style>',
+    '<!DOCTYPE html><html><head><title>Atlas</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>',
     '*{box-sizing:border-box;margin:0;padding:0}',
     'body{font-family:-apple-system,sans-serif;background:#09090b;color:#fafafa;height:100vh;display:flex;flex-direction:column;max-width:860px;margin:0 auto;padding:20px}',
     'header{display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:1px solid #27272a}',
@@ -84,15 +85,13 @@ app.get('/', (req, res) => {
     '.user-entry{align-self:flex-end;align-items:flex-end}',
     '.bot-entry{align-self:flex-start;align-items:flex-start}',
     '.role{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#71717a;font-weight:600;padding:0 4px}',
-    '.content{font-size:14px;line-height:1.6;padding:12px 16px;border-radius:12px;border:1px solid #27272a}',
+    '.content{font-size:14px;line-height:1.65;padding:12px 16px;border-radius:12px;border:1px solid #27272a}',
     '.bot-text{background:#121215;color:#e4e4e7;border-bottom-left-radius:3px}',
     '.user-text{background:#1e293b;border-color:#334155;color:#f8fafc;white-space:pre-wrap;border-bottom-right-radius:3px}',
-    '.content h1,.content h2,.content h3{color:#fff;margin:10px 0 6px;font-size:15px}',
-    '.content p{margin-bottom:8px}.content p:last-child{margin-bottom:0}',
-    '.content ul,.content ol{margin:6px 0 10px 18px}',
-    '.content table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12.5px}',
-    '.content th,.content td{border:1px solid #27272a;padding:6px 8px;text-align:left}',
-    '.content th{background:#18181b}',
+    '.content h1,.content h2,.content h3{color:#fff;margin:10px 0 4px;font-size:15.5px;font-weight:600}',
+    '.content strong{color:#fff;font-weight:600}',
+    '.content li{margin-left:18px;margin-bottom:3px}',
+    '.content hr{border:none;border-top:1px solid #27272a;margin:10px 0}',
     '.composer{margin-top:10px;background:#121215;border:1px solid #27272a;border-radius:12px;padding:10px 12px;display:flex;align-items:flex-end;gap:10px}',
     'textarea{flex:1;background:transparent;border:none;color:#fafafa;font-family:inherit;font-size:14px;line-height:22px;min-height:154px;max-height:260px;overflow-y:auto;resize:vertical;outline:none}',
     'textarea::-webkit-scrollbar{width:5px}',
@@ -104,11 +103,12 @@ app.get('/', (req, res) => {
     '<div id="status">System ready.</div>',
     '<div id="chat"><div class="entry bot-entry"><div class="role">Atlas</div><div class="content bot-text">Connected and standing by.</div></div></div>',
     '<div class="composer"><textarea id="input" rows="7" placeholder="Write a command..." oninput="this.style.height=\'154px\';this.style.height=Math.min(Math.max(this.scrollHeight,154),260)+\'px\'" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();send();}"></textarea>',
-    '<button class="submit" onclick="send()">Send</button></div>' + sOpen + '>',
+    '<button class="submit" onclick="send()">Send</button></div>' + sOpen,
+    mdParser,
     'let voiceActive=false,rec=null;',
     'function toggleVoice(){const b=document.getElementById("voiceBtn"),s=document.getElementById("status");if(!voiceActive){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){s.innerText="Voice unavailable.";return;}rec=new SR();rec.continuous=false;rec.interimResults=true;rec.lang="en-US";rec.onresult=(e)=>{const l=Array.from(e.results).at(-1),t=Array.from(l).at(0).transcript.trim();s.innerText="Input: "+t;if(l.isFinal&&t.toLowerCase().includes("atlas"))send(t,true);};rec.onerror=(e)=>{if(e.error!=="no-speech"&&e.error!=="aborted")s.innerText="Audio: "+e.error;};rec.onend=()=>{if(voiceActive&&!window.speechSynthesis.speaking)setTimeout(()=>{try{rec.start();}catch(e){}},150);};rec.start();voiceActive=true;b.innerText="Listening";b.classList.add("active");s.innerText="Hands-free active.";}else{voiceActive=false;if(rec)rec.stop();window.speechSynthesis.cancel();b.innerText="Voice Off";b.classList.remove("active");s.innerText="Voice disabled.";}}',
     'function speak(t){if(!voiceActive)return;if(rec)rec.stop();const u=new SpeechSynthesisUtterance(t.replace(/[*#_|-]/g,""));u.onend=()=>{if(voiceActive&&rec)try{rec.start();}catch(e){}};window.speechSynthesis.speak(u);}',
-    'function addMsg(r,t,u){const c=document.getElementById("chat"),d=document.createElement("div");d.className="entry "+(u?"user-entry":"bot-entry");d.innerHTML="<div class=\'role\'>"+r+"</div><div class=\'content "+(u?"user-text":"bot-text")+"\'></div>";const ct=d.querySelector(".content");if(u)ct.textContent=t;else ct.innerHTML=typeof marked!=="undefined"?marked.parse(t):t;c.appendChild(d);c.scrollTop=c.scrollHeight;}',
+    'function addMsg(r,t,u){const c=document.getElementById("chat"),d=document.createElement("div");d.className="entry "+(u?"user-entry":"bot-entry");d.innerHTML="<div class=\'role\'>"+r+"</div><div class=\'content "+(u?"user-text":"bot-text")+"\'></div>";const ct=d.querySelector(".content");if(u)ct.textContent=t;else ct.innerHTML=parseMD(t);c.appendChild(d);c.scrollTop=c.scrollHeight;}',
     'async function send(sp=null,v=false){const i=document.getElementById("input"),t=sp||i.value.trim();if(!t)return;addMsg("You",t,true);if(!v){i.value="";i.style.height="154px";}const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:t})});const d=await r.json();addMsg("Atlas",d.reply,false);if(v)speak(d.reply);}',
     sClose + '</body></html>'
   ].join(''));
@@ -122,16 +122,15 @@ app.get('/login', (req, res) => {
 app.get('/api/auth/callback/google', async (req, res) => {
   try {
     const { tokens } = await oauth2Client.getToken(req.query.code);
-    savedTokens = tokens;
-    oauth2Client.setCredentials(tokens);
-    await syncMemory(false);
-    res.redirect('/');
-  } catch (e) { res.status(500).send(e.message); }
+savedTokens = tokens;
+oauth2Client.setCredentials(tokens);
+await syncMemory(false);
+res.redirect('/');
+} catch (e) { res.status(500).send(e.message); }
 });
-
 app.post('/chat', async (req, res) => {
-  try {
-    const { message } = req.body, l = message.toLowerCase();
+try {
+const { message } = req.body, l = message.toLowerCase();
 if (l.includes('my name') || l.includes('remember') || l.includes('5719') || l.includes('save')) systemMemory += '\nFact: ' + message;
 let ctx = '';
 if (l.includes('gmail') || l.includes('email') || l.includes('sent')) ctx += '\n\n[SENT EMAILS]:\n' + await getEmails();
