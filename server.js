@@ -81,7 +81,7 @@ app.get('/', (req, res) => {
             recognition.lang = 'en-US';
 
             recognition.onresult = (event) => {
-              const transcript = event.results[event.results.length - 1][0].transcript.trim();
+              const transcript = event.results[event.results.length - 1].transcript.trim();
               status.innerText = 'Heard: "' + transcript + '"';
               if (transcript.toLowerCase().includes('atlas')) {
                 send(transcript, true);
@@ -191,7 +191,7 @@ app.post('/chat', async (req, res) => {
         { role: 'system', content: systemMemory },
         ...chatHistory
       ],
-      model: 'llama-3.3-70b-versatile'
+      model: 'openai/gpt-oss-120b'
     });
 
     const reply = completion.choices[0].message.content;
