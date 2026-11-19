@@ -26,16 +26,16 @@ async function getRecentEmails() {
   if (!savedTokens) return "Gmail is not connected yet.";
   oauth2Client.setCredentials(savedTokens);
   const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-  const res = await gmail.users.messages.list({ userId: 'me', maxResults: 15 });
-  if (!res.data.messages) return "No emails found.";
+  const res = await gmail.users.messages.list({ userId: 'me', q: 'in:sent', maxResults: 50 });
+  if (!res.data.messages) return "No sent emails found.";
 
   let summaries = [];
   for (const msg of res.data.messages) {
-    const detail = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'metadata', metadataHeaders: ['From', 'To', 'Subject', 'Date'] });
+    const detail = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'metadata', metadataHeaders: ['To', 'Subject', 'Date'] });
     const headers = detail.data.payload.headers;
-    const from = headers.find(h => h.name === 'From')?.value || '';
+    const to = headers.find(h => h.name === 'To')?.value || '';
     const subject = headers.find(h => h.name === 'Subject')?.value || '';
-    summaries.push(`From: ${from} | Subject: ${subject} | Snippet: ${detail.data.snippet}`);
+    summaries.push(`To: ${to} | Subject: ${subject} | Snippet: ${detail.data.snippet}`);
   }
   return summaries.join('\n');
 }
@@ -205,14 +205,14 @@ app.post('/chat', async (req, res) => {
     const { message } = req.body;
     const lower = message.toLowerCase();
 
-    if (lower.includes('my name is') || lower.includes('remember')) {
+    if (lower.includes('my name is') || lower.includes('remember') || lower.includes('5719')) {
       systemMemory += '\nUser Context: ' + message;
     }
 
     let emailContext = '';
-    if (lower.includes('gmail') || lower.includes('email') || lower.includes('inbox')) {
+    if (lower.includes('gmail') || lower.includes('email') || lower.includes('sent')) {
       const emails = await getRecentEmails();
-      emailContext = `\n\n[LIVE GMAIL INBOX DATA (Last 15 Emails)]:\n${emails}`;
+      emailContext = `\n\n[LIVE GMAIL SENT DATA (Last 50 Sent Emails)]:\n${emails}`;
     }
 
     chatHistory.push({ role: 'user', content: message + emailContext });
