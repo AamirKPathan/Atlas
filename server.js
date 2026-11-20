@@ -31,7 +31,7 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 // ==========================================
-// MEMORY & SYSTEM VARIABLES
+// MEMORY VARIABLES
 // ==========================================
 
 let savedTokens = null;
@@ -67,6 +67,8 @@ async function syncMemory(saveNew = false) {
             }
         }
 
+        // LOAD EXISTING MEMORY
+
         if (memoryFileId && !saveNew) {
             const f = await drive.files.get({
                 fileId: memoryFileId,
@@ -74,20 +76,36 @@ async function syncMemory(saveNew = false) {
             });
 
             if (f.data?.systemMemory) {
-                systemMemory = f.data.systemMemory;
+                systemMemory = String(f.data.systemMemory).slice(0, 1500);
             }
 
-            if (f.data?.chatHistory) {
-                chatHistory = f.data.chatHistory.slice(-8);
+            if (Array.isArray(f.data?.chatHistory)) {
+                chatHistory = f.data.chatHistory
+                    .slice(-6)
+                    .map(m => ({
+                        role: m.role,
+                        content: String(m.content).slice(0, 800)
+                    }));
             }
 
             return;
         }
 
+        // CLEAN CHAT HISTORY
+
+        const cleanHistory = chatHistory
+            .slice(-6)
+            .map(m => ({
+                role: m.role,
+                content: String(m.content).slice(0, 800)
+            }));
+
         const body = JSON.stringify({
-            systemMemory,
-            chatHistory: chatHistory.slice(-8)
+            systemMemory: systemMemory.slice(0, 1500),
+            chatHistory: cleanHistory
         });
+
+        // UPDATE OR CREATE MEMORY FILE
 
         if (memoryFileId) {
             await drive.files.update({
@@ -112,6 +130,7 @@ async function syncMemory(saveNew = false) {
 
             memoryFileId = c.data.id;
         }
+
     } catch (e) {}
 }
 
@@ -132,10 +151,12 @@ async function getEmails() {
     const r = await gmail.users.messages.list({
         userId: 'me',
         q: 'in:sent',
-        maxResults: 25
+        maxResults: 20
     });
 
-    if (!r.data.messages) return "No sent emails.";
+    if (!r.data.messages) {
+        return "No sent emails.";
+    }
 
     let out = [];
 
@@ -155,7 +176,7 @@ async function getEmails() {
             '|Subj:' +
             (h.find(x => x.name === 'Subject')?.value || '') +
             '|' +
-            d.data.snippet.slice(0, 100)
+            d.data.snippet.slice(0, 80)
         );
     }
 
@@ -189,7 +210,7 @@ async function getDrive() {
 }
 
 // ==========================================
-// MAIN DASHBOARD
+// ATLAS DASHBOARD
 // ==========================================
 
 app.get('/', (req, res) => {
@@ -231,12 +252,18 @@ app.get('/', (req, res) => {
 
         '</style></head><body>',
 
+        // HEADER
+
         '<header><div class="brand"><span class="dot"></span><span>ATLAS</span></div>',
         '<div><button id="voiceBtn" class="pill" onclick="toggleVoice()">Voice Off</button><a href="/login" class="pill">' + auth + '</a></div></header>',
 
         '<div id="status">System ready.</div>',
 
+        // CHAT WINDOW
+
         '<div id="chat"><div class="entry bot-entry"><div class="role">Atlas</div><div class="content bot-text">Connected and standing by.</div></div></div>',
+
+        // MESSAGE COMPOSER
 
         '<div class="composer"><textarea id="input" rows="7" placeholder="Write a command..." oninput="this.style.height=\'154px\';this.style.height=Math.min(Math.max(this.scrollHeight,154),260)+\'px\'" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();send();}"></textarea>',
         '<button class="submit" onclick="send()">Send</button></div>' + sOpen,
@@ -245,19 +272,23 @@ app.get('/', (req, res) => {
 
         'function parseMD(t){var b=t.split("**").map(function(p,i){return i%2===1?"<strong>"+p+"</strong>":p;}).join("");return b.split(String.fromCharCode(10)).map(function(l){if(l.startsWith("### "))return "<h3>"+l.slice(4)+"</h3>";if(l.startsWith("## "))return "<h2>"+l.slice(3)+"</h2>";if(l.startsWith("# "))return "<h1>"+l.slice(2)+"</h1>";if(l.trim()==="---")return "<hr>";if(l.startsWith("- ")||l.startsWith("* "))return "<li>"+l.slice(2)+"</li>";return l;}).join("<br>");}',
 
-        // VOICE ASSISTANT
+        // VOICE VARIABLES
 
         'let voiceActive=false,rec=null;',
 
+        // VOICE RECOGNITION
+
         'function toggleVoice(){const b=document.getElementById("voiceBtn"),s=document.getElementById("status");if(!voiceActive){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){s.innerText="Voice unavailable.";return;}rec=new SR();rec.continuous=false;rec.interimResults=true;rec.lang="en-US";rec.onresult=(e)=>{const l=Array.from(e.results).at(-1),t=Array.from(l).at(0).transcript.trim();s.innerText="Input: "+t;if(l.isFinal&&t.toLowerCase().includes("atlas"))send(t,true);};rec.onerror=(e)=>{if(e.error!=="no-speech"&&e.error!=="aborted")s.innerText="Audio: "+e.error;};rec.onend=()=>{if(voiceActive&&!window.speechSynthesis.speaking)setTimeout(()=>{try{rec.start();}catch(e){}},150);};rec.start();voiceActive=true;b.innerText="Listening";b.classList.add("active");s.innerText="Hands-free active.";}else{voiceActive=false;if(rec)rec.stop();window.speechSynthesis.cancel();b.innerText="Voice Off";b.classList.remove("active");s.innerText="Voice disabled.";}}',
+
+        // TEXT-TO-SPEECH
 
         'function speak(t){if(!voiceActive)return;if(rec)rec.stop();const u=new SpeechSynthesisUtterance(t.replace(/[*#_|-]/g,""));u.onend=()=>{if(voiceActive&&rec)try{rec.start();}catch(e){}};window.speechSynthesis.speak(u);}',
 
-        // CHAT UI
+        // ADD CHAT MESSAGE
 
         'function addMsg(r,t,u){const c=document.getElementById("chat"),d=document.createElement("div");d.className="entry "+(u?"user-entry":"bot-entry");d.innerHTML="<div class=\'role\'>"+r+"</div><div class=\'content "+(u?"user-text":"bot-text")+"\'></div>";const ct=d.querySelector(".content");if(u)ct.textContent=t;else ct.innerHTML=parseMD(t);c.appendChild(d);c.scrollTop=c.scrollHeight;}',
 
-        // SEND MESSAGE
+        // SEND CHAT MESSAGE
 
         'async function send(sp=null,v=false){const i=document.getElementById("input"),t=sp||i.value.trim();if(!t)return;addMsg("You",t,true);if(!v){i.value="";i.style.height="154px";}const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:t})});const d=await r.json();addMsg("Atlas",d.reply,false);if(v)speak(d.reply);}',
 
@@ -304,8 +335,10 @@ app.get('/api/auth/callback/google', async (req, res) => {
         oauth2Client.setCredentials(tokens);
 
         await syncMemory(false);
+        await syncMemory(true);
 
         res.redirect('/');
+
     } catch (e) {
         res.status(500).send(e.message);
     }
@@ -328,7 +361,7 @@ app.post('/chat', async (req, res) => {
             l.includes('5719') ||
             l.includes('save')
         ) {
-            systemMemory += '\nFact: ' + message.slice(0, 400);
+            systemMemory += '\nFact: ' + message.slice(0, 300);
         }
 
         // CONTEXT RETRIEVAL
@@ -351,9 +384,14 @@ app.post('/chat', async (req, res) => {
             ctx += '\n\n[DRIVE]:\n' + await getDrive();
         }
 
-        // CHAT HISTORY
+        // RECENT CHAT HISTORY
 
-        const recent = chatHistory.slice(-8);
+        const recent = chatHistory
+            .slice(-6)
+            .map(m => ({
+                role: m.role,
+                content: String(m.content).slice(0, 800)
+            }));
 
         // GROQ AI COMPLETION
 
@@ -361,12 +399,12 @@ app.post('/chat', async (req, res) => {
             messages: [
                 {
                     role: 'system',
-                    content: systemMemory.slice(0, 2500)
+                    content: systemMemory.slice(0, 1500)
                 },
                 ...recent,
                 {
                     role: 'user',
-                    content: message + ctx
+                    content: (message + ctx).slice(0, 3500)
                 }
             ],
             model: 'openai/gpt-oss-120b'
@@ -374,15 +412,21 @@ app.post('/chat', async (req, res) => {
 
         const reply = comp.choices.at(0).message.content;
 
-        // UPDATE HISTORY
+        // UPDATE CHAT HISTORY
 
         chatHistory.push(
-            { role: 'user', content: message },
-            { role: 'assistant', content: reply }
+            {
+                role: 'user',
+                content: message.slice(0, 800)
+            },
+            {
+                role: 'assistant',
+                content: reply.slice(0, 800)
+            }
         );
 
-        if (chatHistory.length > 8) {
-            chatHistory = chatHistory.slice(-8);
+        if (chatHistory.length > 6) {
+            chatHistory = chatHistory.slice(-6);
         }
 
         // SAVE MEMORY
