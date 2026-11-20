@@ -7,7 +7,9 @@ app.use(express.json({ limit: '1mb' }));
 
 const PORT = process.env.PORT || 3000;
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const host = process.env.RENDER_EXTERNAL_URL || ('https://' + '://onrender.com');
+const sub = 'atlas-bot-muju';
+const dom = ['onrender', 'com'].join('.');
+const host = process.env.RENDER_EXTERNAL_URL || ('https://' + sub + '.' + dom);
 const redirectUri = host + '/api/auth/callback/google';
 
 const oauth2Client = new google.auth.OAuth2(
@@ -54,7 +56,6 @@ const tools = [
   { type: 'function', function: { name: 'append_sheet', description: 'Add a row of lead/sponsor data to a Google Sheet', parameters: { type: 'object', properties: { spreadsheetId: { type: 'string' }, values: { type: 'array', items: { type: 'string' } } }, required: ['spreadsheetId', 'values'] } } },
   { type: 'function', function: { name: 'list_drive', description: 'Find files and IDs in Google Drive', parameters: { type: 'object', properties: { query: { type: 'string' } } } } }
 ];
-
 async function runTool(name, args) {
   if (!savedTokens) return 'Error: Click Connect Google at the top right first.';
   oauth2Client.setCredentials(savedTokens);
@@ -144,38 +145,37 @@ app.get('/', (req, res) => {
     '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ATLAS AI</title><style>',
     '*{box-sizing:border-box}body{margin:0;padding:20px;background:#09090b;color:#fafafa;font-family:-apple-system,BlinkMacSystemFont,"Inter",sans-serif;height:100vh}',
     '.app{max-width:850px;height:calc(100vh - 40px);margin:auto;display:flex;flex-direction:column}',
-      'header{display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:1px solid #27272a}',
-'.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px;letter-spacing:.05em}',
-'.dot{width:8px;height:8px;border-radius:50%;background:' + dot + '}',
-'.pill{background:#121215;color:#fafafa;border:1px solid #27272a;padding:6px 12px;border-radius:6px;font-size:12px;text-decoration:none;cursor:pointer;margin-left:8px}',
-'.pill.active{border-color:#10b981;color:#10b981}',
-'#status{font-size:12px;color:#71717a;padding:8px 0}',
-'#chat{flex:1;overflow-y:auto;padding:12px 0;display:flex;flex-direction:column;gap:16px;scrollbar-width:none;-ms-overflow-style:none}',
-'#chat::-webkit-scrollbar{display:none}',
-'.entry{display:flex;flex-direction:column;gap:4px;max-width:80%}',
-'.user-entry{align-self:flex-end;align-items:flex-end}.bot-entry{align-self:flex-start;align-items:flex-start}',
-'.role{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#71717a;font-weight:600;padding:0 4px}',
-'.content{font-size:14px;line-height:1.65;padding:12px 16px;border-radius:12px;border:1px solid #27272a;overflow-wrap:anywhere}',
-'.bot-text{background:#121215;color:#e4e4e7;border-bottom-left-radius:3px}',
-'.user-text{background:#1e293b;border-color:#334155;color:#f8fafc;white-space:pre-wrap;border-bottom-right-radius:3px}',
-'.content h1,.content h2,.content h3{color:#fff;margin:10px 0 4px;font-size:15.5px;font-weight:600}',
-'.content strong{color:#fff}.content li{margin-left:18px;margin-bottom:3px}.content hr{border:none;border-top:1px solid #27272a;margin:10px 0}',
-'.composer{margin-top:10px;background:#121215;border:1px solid #27272a;border-radius:12px;padding:10px 12px;display:flex;align-items:flex-end;gap:10px}',
-'textarea{flex:1;background:transparent;border:none;color:#fafafa;font-family:inherit;font-size:14px;line-height:22px;min-height:154px;max-height:260px;overflow-y:auto;resize:vertical;outline:none}',
-'textarea::-webkit-scrollbar{width:5px}textarea::-webkit-scrollbar-thumb{background:#3f3f46;border-radius:4px}',
-'button.submit{background:#fafafa;color:#09090b;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer}',
-'button:disabled{opacity:.5;cursor:not-allowed}',
-'',
-'ATLAS' + authLabel + 'Voice Off',
-'System ready.',
-'AtlasAtlas connected and standing by.',
-'',
-'Send' + sOpen,
-'function escapeHTML(v){return String(v).replace(/&/g,"&").replace(/</g,"<").replace(/>/g,">");}',
-'function parseMD(t){var e=escapeHTML(t);var b=e.split("**").map(function(p,i){return i%2===1?""+p+"":p;}).join("");return b.split(String.fromCharCode(10)).map(function(l){if(l.startsWith("### "))return ""+l.slice(4)+"";if(l.startsWith("## "))return ""+l.slice(3)+"";if(l.startsWith("# "))return ""+l.slice(2)+"";if(l.trim()==="---")return "";if(l.startsWith("- ")||l.startsWith("* "))return ""+l.slice(2)+"";return l;}).join("
-");}',
-'function addMsg(role,text,isUser){const chat=document.getElementById("chat"),entry=document.createElement("div");entry.className="entry "+(isUser?"user-entry":"bot-entry");const label=document.createElement("div");label.className="role";label.textContent=role;const content=document.createElement("div");content.className="content "+(isUser?"user-text":"bot-text");if(isUser)content.textContent=text;else content.innerHTML=parseMD(text);entry.appendChild(label);entry.appendChild(content);chat.appendChild(entry);chat.scrollTop=chat.scrollHeight;}',
-'async function send(sp=null,voice=false){const input=document.getElementById("input"),btn=document.getElementById("sendBtn"),message=sp||input.value.trim();if(!message||btn.disabled)return;addMsg("You",message,true);if(!voice){input.value="";input.style.height="154px";}btn.disabled=true;document.getElementById("status").textContent="Atlas is thinking...";try{const res=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message})});const data=await res.json();addMsg("Atlas",data.reply,false);document.getElementById("status").textContent="System ready.";if(voice)speak(data.reply);}catch(e){addMsg("Atlas","Connection error: "+e.message,false);document.getElementById("status").textContent="Connection error.";}finally{btn.disabled=false;}}',
+    'header{display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:1px solid #27272a}',
+    '.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px;letter-spacing:.05em}',
+    '.dot{width:8px;height:8px;border-radius:50%;background:' + dot + '}',
+    '.pill{background:#121215;color:#fafafa;border:1px solid #27272a;padding:6px 12px;border-radius:6px;font-size:12px;text-decoration:none;cursor:pointer;margin-left:8px}',
+    '.pill.active{border-color:#10b981;color:#10b981}',
+    '#status{font-size:12px;color:#71717a;padding:8px 0}',
+    '#chat{flex:1;overflow-y:auto;padding:12px 0;display:flex;flex-direction:column;gap:16px;scrollbar-width:none;-ms-overflow-style:none}',
+    '#chat::-webkit-scrollbar{display:none}',
+    '.entry{display:flex;flex-direction:column;gap:4px;max-width:80%}',
+    '.user-entry{align-self:flex-end;align-items:flex-end}.bot-entry{align-self:flex-start;align-items:flex-start}',
+    '.role{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#71717a;font-weight:600;padding:0 4px}',
+    '.content{font-size:14px;line-height:1.65;padding:12px 16px;border-radius:12px;border:1px solid #27272a;overflow-wrap:anywhere}',
+    '.bot-text{background:#121215;color:#e4e4e7;border-bottom-left-radius:3px}',
+    '.user-text{background:#1e293b;border-color:#334155;color:#f8fafc;white-space:pre-wrap;border-bottom-right-radius:3px}',
+    '.content h1,.content h2,.content h3{color:#fff;margin:10px 0 4px;font-size:15.5px;font-weight:600}',
+    '.content strong{color:#fff}.content li{margin-left:18px;margin-bottom:3px}.content hr{border:none;border-top:1px solid #27272a;margin:10px 0}',
+    '.composer{margin-top:10px;background:#121215;border:1px solid #27272a;border-radius:12px;padding:10px 12px;display:flex;align-items:flex-end;gap:10px}',
+    'textarea{flex:1;background:transparent;border:none;color:#fafafa;font-family:inherit;font-size:14px;line-height:22px;min-height:154px;max-height:260px;overflow-y:auto;resize:vertical;outline:none}',
+    'textarea::-webkit-scrollbar{width:5px}textarea::-webkit-scrollbar-thumb{background:#3f3f46;border-radius:4px}',
+    'button.submit{background:#fafafa;color:#09090b;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer}',
+    'button:disabled{opacity:.5;cursor:not-allowed}',
+    '</style></head><body><div class="app">',
+    '<header><div class="brand"><span class="dot"></span>ATLAS</div><div><a href="/login" class="pill">' + authLabel + '</a><button id="voiceBtn" class="pill" onclick="toggleVoice()">Voice Off</button></div></header>',
+    '<div id="status">System ready.</div>',
+    '<div id="chat"><div class="entry bot-entry"><div class="role">Atlas</div><div class="content bot-text">Atlas connected and standing by.</div></div></div>',
+    '<div class="composer"><textarea id="input" rows="7" placeholder="Message Atlas..." oninput="this.style.height=\'154px\';this.style.height=Math.min(Math.max(this.scrollHeight,154),260)+\'px\'" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();send();}"></textarea>',
+    '<button class="submit" id="sendBtn" onclick="send()">Send</button></div></div>' + sOpen,
+    'function escapeHTML(v){return String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}',
+    'function parseMD(t){var e=escapeHTML(t);var b=e.split("**").map(function(p,i){return i%2===1?"<strong>"+p+"</strong>":p;}).join("");return b.split(String.fromCharCode(10)).map(function(l){if(l.startsWith("### "))return "<h3>"+l.slice(4)+"</h3>";if(l.startsWith("## "))return "<h2>"+l.slice(3)+"</h2>";if(l.startsWith("# "))return "<h1>"+l.slice(2)+"</h1>";if(l.trim()==="---")return "<hr>";if(l.startsWith("- ")||l.startsWith("* "))return "<li>"+l.slice(2)+"</li>";return l;}).join("<br>");}',
+    'function addMsg(role,text,isUser){const chat=document.getElementById("chat"),entry=document.createElement("div");entry.className="entry "+(isUser?"user-entry":"bot-entry");const label=document.createElement("div");label.className="role";label.textContent=role;const content=document.createElement("div");content.className="content "+(isUser?"user-text":"bot-text");if(isUser)content.textContent=text;else content.innerHTML=parseMD(text);entry.appendChild(label);entry.appendChild(content);chat.appendChild(entry);chat.scrollTop=chat.scrollHeight;}',
+'async function send(sp=null,voice=false){const input=document.getElementById("input"),btn=document.getElementById("sendBtn"),message=sp||input.value.trim();if(!message||button.disabled)return;addMsg("You",message,true);if(!voice){input.value="";input.style.height="154px";}btn.disabled=true;document.getElementById("status").textContent="Atlas is thinking...";try{const res=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message})});const data=await res.json();addMsg("Atlas",data.reply,false);document.getElementById("status").textContent="System ready.";if(voice)speak(data.reply);}catch(e){addMsg("Atlas","Connection error: "+e.message,false);document.getElementById("status").textContent="Connection error.";}finally{btn.disabled=false;}}',
 'let voiceActive=false,rec=null;',
 'function toggleVoice(){const b=document.getElementById("voiceBtn"),s=document.getElementById("status");if(!voiceActive){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){s.textContent="Voice unavailable.";return;}rec=new SR();rec.continuous=false;rec.interimResults=true;rec.lang="en-US";rec.onresult=function(e){const l=Array.from(e.results).at(-1),t=Array.from(l).at(0).transcript.trim();s.textContent="Input: "+t;if(l.isFinal&&t.toLowerCase().includes("atlas"))send(t,true);};rec.onerror=function(e){if(e.error!=="no-speech"&&e.error!=="aborted")s.textContent="Audio: "+e.error;};rec.onend=function(){if(voiceActive&&!window.speechSynthesis.speaking)setTimeout(function(){if(voiceActive)try{rec.start();}catch(e){}},200);};rec.start();voiceActive=true;b.textContent="Listening";b.classList.add("active");s.textContent="Hands-free active.";}else{voiceActive=false;if(rec)rec.stop();window.speechSynthesis.cancel();b.textContent="Voice Off";b.classList.remove("active");s.textContent="Voice disabled.";}}',
 'function speak(t){if(!voiceActive)return;if(rec)rec.stop();const u=new SpeechSynthesisUtterance(t.replace(/[*#_|-]/g,""));u.onend=function(){if(voiceActive&&rec)try{rec.start();}catch(e){}};window.speechSynthesis.speak(u);}',
