@@ -1,452 +1,538 @@
 
 const express = require('express');
-const cors = require('cors');
-const Groq = require('groq-sdk');
 const { google } = require('googleapis');
-
-require('dotenv').config();
-
-// ==========================================
-// INITIALIZATION
-// ==========================================
+const Groq = require('groq-sdk');
 
 const app = express();
 
-app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+
+// =====================================
+// CONFIGURATION
+// =====================================
+
+const PORT = process.env.PORT || 3000;
+
+if (!process.env.GROQ_API_KEY) {
+    throw new Error('Missing GROQ_API_KEY environment variable');
+}
 
 const groq = new Groq({
     apiKey: process.env.GROQ_API_KEY
 });
 
-const redirectUri = Buffer.from(
-    'aHR0cHM6Ly9hdGxhcy1ib3QtbXVqdS5vbnJlbmRlci5jb20vYXBpL2F1dGgvY2FsbGJhY2svZ29vZ2xl',
-    'base64'
-).toString('utf8');
-
 const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    redirectUri
+    process.env.GOOGLE_REDIRECT_URI ||
+    `http://localhost:${PORT}/api/auth/callback/google`
 );
-
-// ==========================================
-// MEMORY VARIABLES
-// ==========================================
 
 let savedTokens = null;
-let memoryFileId = null;
+let systemMemory = '';
 let chatHistory = [];
 
-let systemMemory =
-    "Your name is Atlas. Executive assistant for Aamir Khan Pathan (FRC Team 5719 Business Lead & Web Design). Be clear and concise.";
+const tools = [];
 
-// ==========================================
-// GOOGLE DRIVE MEMORY SYNC
-// ==========================================
+// =====================================
+// MEMORY
+// =====================================
 
-async function syncMemory(saveNew = false) {
-    if (!savedTokens) return;
-
-    oauth2Client.setCredentials(savedTokens);
-
-    const drive = google.drive({
-        version: 'v3',
-        auth: oauth2Client
-    });
-
-    try {
-        if (!memoryFileId) {
-            const s = await drive.files.list({
-                q: "name='Atlas_Memory.json' and trashed=false",
-                fields: 'files(id)'
-            });
-
-            if (s.data.files.length) {
-                memoryFileId = s.data.files.at(0).id;
-            }
-        }
-
-        // LOAD EXISTING MEMORY
-
-        if (memoryFileId && !saveNew) {
-            const f = await drive.files.get({
-                fileId: memoryFileId,
-                alt: 'media'
-            });
-
-            if (f.data?.systemMemory) {
-                systemMemory = String(f.data.systemMemory).slice(0, 1500);
-            }
-
-            if (Array.isArray(f.data?.chatHistory)) {
-                chatHistory = f.data.chatHistory
-                    .slice(-6)
-                    .map(m => ({
-                        role: m.role,
-                        content: String(m.content).slice(0, 800)
-                    }));
-            }
-
-            return;
-        }
-
-        // CLEAN CHAT HISTORY
-
-        const cleanHistory = chatHistory
-            .slice(-6)
-            .map(m => ({
-                role: m.role,
-                content: String(m.content).slice(0, 800)
-            }));
-
-        const body = JSON.stringify({
-            systemMemory: systemMemory.slice(0, 1500),
-            chatHistory: cleanHistory
-        });
-
-        // UPDATE OR CREATE MEMORY FILE
-
-        if (memoryFileId) {
-            await drive.files.update({
-                fileId: memoryFileId,
-                media: {
-                    mimeType: 'application/json',
-                    body
-                }
-            });
-        } else {
-            const c = await drive.files.create({
-                requestBody: {
-                    name: 'Atlas_Memory.json',
-                    mimeType: 'application/json'
-                },
-                media: {
-                    mimeType: 'application/json',
-                    body
-                },
-                fields: 'id'
-            });
-
-            memoryFileId = c.data.id;
-        }
-
-    } catch (e) {}
+async function syncMemory() {
+    return true;
 }
 
-// ==========================================
-// GMAIL INTEGRATION
-// ==========================================
+// =====================================
+// TOOL EXECUTION
+// =====================================
 
-async function getEmails() {
-    if (!savedTokens) return "Gmail not linked.";
-
-    oauth2Client.setCredentials(savedTokens);
-
-    const gmail = google.gmail({
-        version: 'v1',
-        auth: oauth2Client
-    });
-
-    const r = await gmail.users.messages.list({
-        userId: 'me',
-        q: 'in:sent',
-        maxResults: 20
-    });
-
-    if (!r.data.messages) {
-        return "No sent emails.";
-    }
-
-    let out = [];
-
-    for (const m of r.data.messages) {
-        const d = await gmail.users.messages.get({
-            userId: 'me',
-            id: m.id,
-            format: 'metadata',
-            metadataHeaders: ['To', 'Subject']
-        });
-
-        const h = d.data.payload.headers;
-
-        out.push(
-            'To:' +
-            (h.find(x => x.name === 'To')?.value || '') +
-            '|Subj:' +
-            (h.find(x => x.name === 'Subject')?.value || '') +
-            '|' +
-            d.data.snippet.slice(0, 80)
-        );
-    }
-
-    return out.join('\n');
+async function runTool(name, args) {
+    throw new Error(`Unknown tool: ${name}`);
 }
 
-// ==========================================
-// GOOGLE DRIVE INTEGRATION
-// ==========================================
-
-async function getDrive() {
-    if (!savedTokens) return "Drive not linked.";
-
-    oauth2Client.setCredentials(savedTokens);
-
-    const drive = google.drive({
-        version: 'v3',
-        auth: oauth2Client
-    });
-
-    const r = await drive.files.list({
-        pageSize: 15,
-        fields: 'files(id, name)'
-    });
-
-    return (
-        (r.data.files || [])
-            .map(f => f.name + '(' + f.id + ')')
-            .join('\n') || "No files."
-    );
-}
-
-// ==========================================
-// ATLAS DASHBOARD
-// ==========================================
+// =====================================
+// HTML INTERFACE
+// =====================================
 
 app.get('/', (req, res) => {
-    const dot = savedTokens ? '#10b981' : '#52525b';
-    const auth = savedTokens ? 'Workspace Linked' : 'Link Google';
 
-    const sOpen = '<' + 'script>';
-    const sClose = '<' + '/script>';
+res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ATLAS AI</title>
 
-    res.send([
-        '<!DOCTYPE html><html><head><title>Atlas</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>',
+<style>
+*{box-sizing:border-box}
+body{
+margin:0;padding:20px;background:#09090b;color:#fafafa;
+font-family:Arial,sans-serif;height:100vh
+}
+.app{
+max-width:850px;height:calc(100vh - 40px);
+margin:auto;display:flex;flex-direction:column
+}
+header{
+display:flex;justify-content:space-between;
+align-items:center;padding-bottom:14px;
+border-bottom:1px solid #27272a
+}
+.brand{
+display:flex;align-items:center;gap:10px;
+font-weight:600;font-size:14px;letter-spacing:.05em
+}
+.dot{
+width:8px;height:8px;border-radius:50%;
+background:#10b981
+}
+.pill{
+background:#121215;color:#fafafa;
+border:1px solid #27272a;padding:6px 12px;
+border-radius:6px;font-size:12px;
+text-decoration:none;cursor:pointer;margin-left:8px
+}
+.pill.active{border-color:#10b981;color:#10b981}
+#status{font-size:12px;color:#71717a;padding:8px 0}
+#chat{
+flex:1;overflow-y:auto;padding:12px 0;
+display:flex;flex-direction:column;gap:16px;
+scrollbar-width:none
+}
+#chat::-webkit-scrollbar{display:none}
+.entry{
+display:flex;flex-direction:column;gap:4px;
+max-width:80%
+}
+.user-entry{align-self:flex-end;align-items:flex-end}
+.bot-entry{align-self:flex-start;align-items:flex-start}
+.role{
+font-size:10px;text-transform:uppercase;
+letter-spacing:.06em;color:#71717a;
+font-weight:600;padding:0 4px
+}
+.content{
+font-size:14px;line-height:1.65;padding:12px 16px;
+border-radius:12px;border:1px solid #27272a;
+overflow-wrap:anywhere
+}
+.bot-text{
+background:#121215;color:#e4e4e7;
+border-bottom-left-radius:3px
+}
+.user-text{
+background:#1e293b;border-color:#334155;
+color:#f8fafc;white-space:pre-wrap;
+border-bottom-right-radius:3px
+}
+.content h1,.content h2,.content h3{
+color:#fff;margin:10px 0 4px;
+font-size:15.5px;font-weight:600
+}
+.content strong{color:#fff}
+.content li{margin-left:18px;margin-bottom:3px}
+.content pre{
+overflow-x:auto;background:#09090b;
+padding:10px;border-radius:6px
+}
+.content code{color:#a7f3d0}
+.composer{
+margin-top:10px;background:#121215;
+border:1px solid #27272a;border-radius:12px;
+padding:10px 12px;display:flex;
+align-items:flex-end;gap:10px
+}
+textarea{
+flex:1;background:transparent;border:none;
+color:#fafafa;font-family:inherit;
+font-size:14px;line-height:22px;
+min-height:60px;max-height:260px;
+overflow-y:auto;resize:vertical;outline:none
+}
+button.submit{
+background:#fafafa;color:#09090b;border:none;
+border-radius:8px;padding:7px 14px;
+font-size:13px;font-weight:600;cursor:pointer
+}
+button:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:600px){
+body{padding:12px}
+.app{height:calc(100vh - 24px)}
+.entry{max-width:95%}
+}
+</style>
+</head>
 
-        '*{box-sizing:border-box;margin:0;padding:0}',
-        'body{font-family:-apple-system,sans-serif;background:#09090b;color:#fafafa;height:100vh;display:flex;flex-direction:column;max-width:860px;margin:0 auto;padding:20px}',
-        'header{display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:1px solid #27272a}',
-        '.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px;letter-spacing:.05em}',
-        '.dot{width:8px;height:8px;border-radius:50%;background:' + dot + '}',
-        '.pill{background:#121215;color:#fafafa;border:1px solid #27272a;padding:6px 12px;border-radius:6px;font-size:12px;text-decoration:none;cursor:pointer;margin-left:8px}',
-        '.pill.active{border-color:#10b981;color:#10b981}',
-        '#status{font-size:12px;color:#71717a;padding:8px 0}',
-        '#chat{flex:1;overflow-y:auto;padding:12px 0;display:flex;flex-direction:column;gap:16px;scrollbar-width:none;-ms-overflow-style:none}',
-        '#chat::-webkit-scrollbar{display:none}',
-        '.entry{display:flex;flex-direction:column;gap:4px;max-width:80%}',
-        '.user-entry{align-self:flex-end;align-items:flex-end}',
-        '.bot-entry{align-self:flex-start;align-items:flex-start}',
-        '.role{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#71717a;font-weight:600;padding:0 4px}',
-        '.content{font-size:14px;line-height:1.65;padding:12px 16px;border-radius:12px;border:1px solid #27272a}',
-        '.bot-text{background:#121215;color:#e4e4e7;border-bottom-left-radius:3px}',
-        '.user-text{background:#1e293b;border-color:#334155;color:#f8fafc;white-space:pre-wrap;border-bottom-right-radius:3px}',
-        '.content h1,.content h2,.content h3{color:#fff;margin:10px 0 4px;font-size:15.5px;font-weight:600}',
-        '.content strong{color:#fff;font-weight:600}',
-        '.content li{margin-left:18px;margin-bottom:3px}',
-        '.content hr{border:none;border-top:1px solid #27272a;margin:10px 0}',
-        '.composer{margin-top:10px;background:#121215;border:1px solid #27272a;border-radius:12px;padding:10px 12px;display:flex;align-items:flex-end;gap:10px}',
-        'textarea{flex:1;background:transparent;border:none;color:#fafafa;font-family:inherit;font-size:14px;line-height:22px;min-height:154px;max-height:260px;overflow-y:auto;resize:vertical;outline:none}',
-        'textarea::-webkit-scrollbar{width:5px}',
-        'textarea::-webkit-scrollbar-thumb{background:#3f3f46;border-radius:4px}',
-        'button.submit{background:#fafafa;color:#09090b;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer}',
+<body>
+<div class="app">
 
-        '</style></head><body>',
+<header>
+<div class="brand">
+<span class="dot"></span>
+ATLAS
+</div>
 
-        // HEADER
+<div>
+<a href="/login" class="pill">Connect Google</a>
+<button id="voiceBtn" class="pill" onclick="toggleVoice()">Voice Off</button>
+</div>
+</header>
 
-        '<header><div class="brand"><span class="dot"></span><span>ATLAS</span></div>',
-        '<div><button id="voiceBtn" class="pill" onclick="toggleVoice()">Voice Off</button><a href="/login" class="pill">' + auth + '</a></div></header>',
+<div id="status">System ready.</div>
 
-        '<div id="status">System ready.</div>',
+<div id="chat">
+<div class="entry bot-entry">
+<div class="role">Atlas</div>
+<div class="content bot-text">
+Atlas connected and standing by.
+</div>
+</div>
+</div>
 
-        // CHAT WINDOW
+<div class="composer">
+<textarea id="input" placeholder="Message Atlas..." onkeydown="handleKey(event)"></textarea>
+<button class="submit" id="sendBtn" onclick="send()">Send</button>
+</div>
 
-        '<div id="chat"><div class="entry bot-entry"><div class="role">Atlas</div><div class="content bot-text">Connected and standing by.</div></div></div>',
+</div>
 
-        // MESSAGE COMPOSER
+<script>
 
-        '<div class="composer"><textarea id="input" rows="7" placeholder="Write a command..." oninput="this.style.height=\'154px\';this.style.height=Math.min(Math.max(this.scrollHeight,154),260)+\'px\'" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();send();}"></textarea>',
-        '<button class="submit" onclick="send()">Send</button></div>' + sOpen,
+function escapeHTML(value){
+return String(value)
+.replace(/&/g,'&amp;')
+.replace(/</g,'&lt;')
+.replace(/>/g,'&gt;')
+.replace(/"/g,'&quot;')
+.replace(/'/g,'&#039;');
+}
 
-        // MARKDOWN PARSER
+function parseMD(text){
+return escapeHTML(text)
+.replace(/\\*\\*(.*?)\\*\\*/g,'<strong>$1</strong>')
+.replace(/^### (.*)$/gm,'<h3>$1</h3>')
+.replace(/^## (.*)$/gm,'<h2>$1</h2>')
+.replace(/^# (.*)$/gm,'<h1>$1</h1>')
+.replace(/^- (.*)$/gm,'<li>$1</li>')
+.replace(/^---$/gm,'<hr>')
+.replace(/\\n/g,'<br>');
+}
 
-        'function parseMD(t){var b=t.split("**").map(function(p,i){return i%2===1?"<strong>"+p+"</strong>":p;}).join("");return b.split(String.fromCharCode(10)).map(function(l){if(l.startsWith("### "))return "<h3>"+l.slice(4)+"</h3>";if(l.startsWith("## "))return "<h2>"+l.slice(3)+"</h2>";if(l.startsWith("# "))return "<h1>"+l.slice(2)+"</h1>";if(l.trim()==="---")return "<hr>";if(l.startsWith("- ")||l.startsWith("* "))return "<li>"+l.slice(2)+"</li>";return l;}).join("<br>");}',
+function addMsg(role,text,isUser){
+const chat=document.getElementById('chat');
+const entry=document.createElement('div');
+entry.className='entry '+(isUser?'user-entry':'bot-entry');
 
-        // VOICE VARIABLES
+const label=document.createElement('div');
+label.className='role';
+label.textContent=role;
 
-        'let voiceActive=false,rec=null;',
+const content=document.createElement('div');
+content.className='content '+(isUser?'user-text':'bot-text');
 
-        // VOICE RECOGNITION
+if(isUser){
+content.textContent=text;
+}else{
+content.innerHTML=parseMD(text);
+}
 
-        'function toggleVoice(){const b=document.getElementById("voiceBtn"),s=document.getElementById("status");if(!voiceActive){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){s.innerText="Voice unavailable.";return;}rec=new SR();rec.continuous=false;rec.interimResults=true;rec.lang="en-US";rec.onresult=(e)=>{const l=Array.from(e.results).at(-1),t=Array.from(l).at(0).transcript.trim();s.innerText="Input: "+t;if(l.isFinal&&t.toLowerCase().includes("atlas"))send(t,true);};rec.onerror=(e)=>{if(e.error!=="no-speech"&&e.error!=="aborted")s.innerText="Audio: "+e.error;};rec.onend=()=>{if(voiceActive&&!window.speechSynthesis.speaking)setTimeout(()=>{try{rec.start();}catch(e){}},150);};rec.start();voiceActive=true;b.innerText="Listening";b.classList.add("active");s.innerText="Hands-free active.";}else{voiceActive=false;if(rec)rec.stop();window.speechSynthesis.cancel();b.innerText="Voice Off";b.classList.remove("active");s.innerText="Voice disabled.";}}',
+entry.appendChild(label);
+entry.appendChild(content);
+chat.appendChild(entry);
+chat.scrollTop=chat.scrollHeight;
+}
 
-        // TEXT-TO-SPEECH
+async function send(sp=null,voice=false){
+const input=document.getElementById('input');
+const button=document.getElementById('sendBtn');
+const message=sp||input.value.trim();
 
-        'function speak(t){if(!voiceActive)return;if(rec)rec.stop();const u=new SpeechSynthesisUtterance(t.replace(/[*#_|-]/g,""));u.onend=()=>{if(voiceActive&&rec)try{rec.start();}catch(e){}};window.speechSynthesis.speak(u);}',
+if(!message||button.disabled)return;
 
-        // ADD CHAT MESSAGE
+addMsg('You',message,true);
 
-        'function addMsg(r,t,u){const c=document.getElementById("chat"),d=document.createElement("div");d.className="entry "+(u?"user-entry":"bot-entry");d.innerHTML="<div class=\'role\'>"+r+"</div><div class=\'content "+(u?"user-text":"bot-text")+"\'></div>";const ct=d.querySelector(".content");if(u)ct.textContent=t;else ct.innerHTML=parseMD(t);c.appendChild(d);c.scrollTop=c.scrollHeight;}',
+if(!voice){
+input.value='';
+input.style.height='60px';
+}
 
-        // SEND CHAT MESSAGE
+button.disabled=true;
+document.getElementById('status').textContent='Atlas is thinking...';
 
-        'async function send(sp=null,v=false){const i=document.getElementById("input"),t=sp||i.value.trim();if(!t)return;addMsg("You",t,true);if(!v){i.value="";i.style.height="154px";}const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:t})});const d=await r.json();addMsg("Atlas",d.reply,false);if(v)speak(d.reply);}',
-
-        sClose + '</body></html>'
-    ].join(''));
+try{
+const response=await fetch('/chat',{
+method:'POST',
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({message})
 });
 
-// ==========================================
-// GOOGLE OAUTH LOGIN
-// ==========================================
+const data=await response.json();
 
-app.get('/login', (req, res) => {
-    const base = Buffer.from(
-        'aHR0cHM6Ly93d3cuZ29vZ2xlYXBpcy5jb20vYXV0aC8=',
-        'base64'
-    ).toString('utf8');
+if(!response.ok)throw new Error(data.reply||'Server error');
 
-    res.redirect(
-        oauth2Client.generateAuthUrl({
-            access_type: 'offline',
-            prompt: 'consent',
-            scope: [
-                'gmail.modify',
-                'calendar',
-                'tasks',
-                'documents',
-                'drive',
-                'spreadsheets'
-            ].map(s => base + s)
-        })
-    );
-});
+addMsg('Atlas',data.reply,false);
 
-// ==========================================
-// GOOGLE OAUTH CALLBACK
-// ==========================================
+document.getElementById('status').textContent=
+'Atlas connected and standing by.';
 
-app.get('/api/auth/callback/google', async (req, res) => {
-    try {
-        const { tokens } = await oauth2Client.getToken(req.query.code);
+if(voice)speak(data.reply);
 
-        savedTokens = tokens;
+}catch(error){
+addMsg('Atlas','Connection error: '+error.message,false);
+document.getElementById('status').textContent='Connection error.';
+}finally{
+button.disabled=false;
+}
+}
 
-        oauth2Client.setCredentials(tokens);
+function handleKey(event){
+if(event.key==='Enter'&&!event.shiftKey){
+event.preventDefault();
+send();
+}
+}
 
-        await syncMemory(false);
-        await syncMemory(true);
+let voiceActive=false;
+let recognition=null;
 
-        res.redirect('/');
+function toggleVoice(){
+const button=document.getElementById('voiceBtn');
+const status=document.getElementById('status');
 
-    } catch (e) {
-        res.status(500).send(e.message);
-    }
-});
+if(!voiceActive){
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 
-// ==========================================
-// AI CHAT ENDPOINT
-// ==========================================
+if(!SR){
+status.textContent='Voice unavailable in this browser.';
+return;
+}
 
-app.post('/chat', async (req, res) => {
-    try {
-        const { message } = req.body;
-        const l = message.toLowerCase();
+recognition=new SR();
+recognition.continuous=false;
+recognition.interimResults=true;
+recognition.lang='en-US';
 
-        // MEMORY DETECTION
+recognition.onresult=function(event){
+const result=event.results[event.results.length-1];
+const transcript=result[0].transcript.trim();
 
-        if (
-            l.includes('my name') ||
-            l.includes('remember') ||
-            l.includes('5719') ||
-            l.includes('save')
-        ) {
-            systemMemory += '\nFact: ' + message.slice(0, 300);
-        }
+status.textContent='Input: '+transcript;
 
-        // CONTEXT RETRIEVAL
+if(result.isFinal&&transcript.toLowerCase().includes('atlas')){
+send(transcript,true);
+}
+};
 
-        let ctx = '';
+recognition.onerror=function(event){
+if(event.error!=='no-speech'&&event.error!=='aborted'){
+status.textContent='Audio error: '+event.error;
+}
+};
 
-        if (
-            l.includes('gmail') ||
-            l.includes('email') ||
-            l.includes('sent')
-        ) {
-            ctx += '\n\n[SENT EMAILS]:\n' + await getEmails();
-        }
+recognition.onend=function(){
+if(voiceActive&&!window.speechSynthesis.speaking){
+setTimeout(()=>{
+if(voiceActive){
+try{recognition.start()}catch(e){}
+}
+},250);
+}
+};
 
-        if (
-            l.includes('drive') ||
-            l.includes('sheet') ||
-            l.includes('doc')
-        ) {
-            ctx += '\n\n[DRIVE]:\n' + await getDrive();
-        }
+try{
+recognition.start();
+voiceActive=true;
+button.textContent='Listening';
+button.classList.add('active');
+status.textContent='Hands-free active.';
+}catch(error){
+status.textContent='Could not start voice recognition.';
+}
 
-        // RECENT CHAT HISTORY
+}else{
+voiceActive=false;
+if(recognition)recognition.stop();
+window.speechSynthesis.cancel();
+button.textContent='Voice Off';
+button.classList.remove('active');
+status.textContent='Voice disabled.';
+}
+}
 
-        const recent = chatHistory
-            .slice(-6)
-            .map(m => ({
-                role: m.role,
-                content: String(m.content).slice(0, 800)
-            }));
+function speak(text){
+if(!voiceActive||!text)return;
 
-        // GROQ AI COMPLETION
+if(recognition)recognition.stop();
 
-        const comp = await groq.chat.completions.create({
-            messages: [
-                {
-                    role: 'system',
-                    content: systemMemory.slice(0, 1500)
-                },
-                ...recent,
-                {
-                    role: 'user',
-                    content: (message + ctx).slice(0, 3500)
-                }
-            ],
-            model: 'openai/gpt-oss-120b'
-        });
-
-        const reply = comp.choices.at(0).message.content;
-
-        // UPDATE CHAT HISTORY
-
-        chatHistory.push(
-            {
-                role: 'user',
-                content: message.slice(0, 800)
-            },
-            {
-                role: 'assistant',
-                content: reply.slice(0, 800)
-            }
-        );
-
-        if (chatHistory.length > 6) {
-            chatHistory = chatHistory.slice(-6);
-        }
-
-        // SAVE MEMORY
-
-        await syncMemory(true);
-
-        res.json({ reply });
-
-    } catch (e) {
-        res.json({
-            reply: 'Error: ' + e.message
-        });
-    }
-});
-
-// ==========================================
-// START SERVER
-// ==========================================
-
-app.listen(
-    process.env.PORT || 3000,
-    () => console.log('Atlas running')
+const utterance=new SpeechSynthesisUtterance(
+text.replace(/[*#_|-]/g,'')
 );
+
+utterance.onend=function(){
+if(voiceActive&&recognition){
+try{recognition.start()}catch(e){}
+}
+};
+
+window.speechSynthesis.speak(utterance);
+}
+
+</script>
+</body>
+</html>`);
+
+});
+
+// =====================================
+// GOOGLE LOGIN
+// =====================================
+
+app.get('/login',(req,res)=>{
+const base='https://www.googleapis.com/auth/';
+
+const scopes=[
+'gmail.modify',
+'calendar',
+'tasks',
+'documents',
+'drive',
+'spreadsheets'
+].map(scope=>base+scope);
+
+const url=oauth2Client.generateAuthUrl({
+access_type:'offline',
+prompt:'consent',
+scope
+});
+
+res.redirect(url);
+});
+
+// =====================================
+// GOOGLE CALLBACK
+// =====================================
+
+app.get('/api/auth/callback/google',async(req,res)=>{
+try{
+const {tokens}=await oauth2Client.getToken(req.query.code);
+
+savedTokens=tokens;
+oauth2Client.setCredentials(tokens);
+
+await syncMemory();
+
+res.redirect('/');
+}catch(error){
+console.error('Google OAuth error:',error);
+res.status(500).send('Google authentication failed.');
+}
+});
+
+// =====================================
+// CHAT API
+// =====================================
+
+app.post('/chat',async(req,res)=>{
+try{
+const message=req.body?.message;
+
+if(typeof message!=='string'||!message.trim()){
+return res.status(400).json({reply:'Please enter a message.'});
+}
+
+const cleanMessage=message.trim();
+const lowerMessage=cleanMessage.toLowerCase();
+
+if(
+lowerMessage.includes('my name')||
+lowerMessage.includes('remember')||
+lowerMessage.includes('save')
+){
+systemMemory+='\nFact: '+cleanMessage.slice(0,300);
+}
+
+const messages=[
+{
+role:'system',
+content:
+'You are Atlas, a helpful AI assistant. '+
+'Be accurate, clear, and helpful.\n'+
+systemMemory.slice(0,1500)
+},
+...chatHistory.slice(-6),
+{
+role:'user',
+content:cleanMessage.slice(0,2500)
+}
+];
+
+let completion=await groq.chat.completions.create({
+messages,
+model:'openai/gpt-oss-120b',
+...(tools.length?{tools,tool_choice:'auto'}:{})
+});
+
+let assistantMessage=completion.choices[0].message;
+
+if(assistantMessage.tool_calls?.length){
+messages.push(assistantMessage);
+
+for(const tc of assistantMessage.tool_calls){
+try{
+const args=JSON.parse(tc.function.arguments||'{}');
+
+const result=await runTool(tc.function.name,args);
+
+messages.push({
+role:'tool',
+tool_call_id:tc.id,
+content:String(result).slice(0,1500)
+});
+
+}catch(error){
+messages.push({
+role:'tool',
+tool_call_id:tc.id,
+content:JSON.stringify({error:'Tool execution failed.'})
+});
+}
+}
+
+completion=await groq.chat.completions.create({
+messages,
+model:'openai/gpt-oss-120b'
+});
+
+assistantMessage=completion.choices[0].message;
+}
+
+const reply=assistantMessage.content||'Action completed.';
+
+chatHistory.push(
+{role:'user',content:cleanMessage.slice(0,800)},
+{role:'assistant',content:reply.slice(0,800)}
+);
+
+if(chatHistory.length>6){
+chatHistory=chatHistory.slice(-6);
+}
+
+await syncMemory();
+
+res.json({reply});
+
+}catch(error){
+console.error('Atlas error:',error);
+res.status(500).json({
+reply:'Atlas encountered an error. Please try again.'
+});
+}
+});
+
+// =====================================
+// START SERVER
+// =====================================
+
+app.listen(PORT,()=>{
+console.log('Atlas running on port '+PORT);
+});
